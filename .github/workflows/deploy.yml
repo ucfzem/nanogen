@@ -25,7 +25,7 @@ jobs:
       - run: npm install
       - run: npm run build
         env:
-          VITE_REPLICATE_API_KEY: ${{ secrets.REPLICATE_API_KEY }}
+          VITE_WORKER_URL: ${{ secrets.WORKER_URL }}
       - uses: actions/configure-pages@v4
         with:
           static_site_generator: vite

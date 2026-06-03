@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 
 const REPLICATE_KEY = import.meta.env.VITE_REPLICATE_API_KEY || ''
+const WORKER_URL = import.meta.env.VITE_WORKER_URL || ''
 
 const STYLE_PROMPTS = {
   realistic: 'professional photography, 8k, dramatic lighting, sharp focus, ',
@@ -49,25 +50,34 @@ function Generator({ t, language, canGenerate, onGeneration }) {
 
   const generateImage = async () => {
     if (!prompt.trim() || !canGenerate()) return
-    if (!REPLICATE_KEY) { setError('Clé Replicate manquante. Créez un .env avec VITE_REPLICATE_API_KEY ou ajoutez-le aux secrets GitHub'); return }
+
+    const apiUrl = WORKER_URL || 'https://api.replicate.com'
+    if (!WORKER_URL && !REPLICATE_KEY) {
+      setError('Configuration requise : définissez VITE_REPLICATE_API_KEY dans .env (local) ou déployez le Worker Cloudflare.')
+      return
+    }
 
     setIsGenerating(true)
     setError(null)
 
     try {
       const fullPrompt = `${STYLE_PROMPTS[style] || ''}${prompt}`
+      const headers = { 'Content-Type': 'application/json' }
+      if (!WORKER_URL) headers['Authorization'] = `Bearer ${REPLICATE_KEY}`
 
-      const res = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions', {
+      const res = await fetch(`${apiUrl}/v1/models/black-forest-labs/flux-schnell/predictions`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${REPLICATE_KEY}`, 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ input: { prompt: fullPrompt, go_fast: true, num_outputs: 1, aspect_ratio: ratio, output_format: 'webp' } })
       })
-      if (!res.ok) throw new Error(`Replicate ${res.status}: ${await res.text().catch(() => '')}`)
+      if (!res.ok) throw new Error(`API ${res.status}: ${await res.text().catch(() => '')}`)
 
       let p = await res.json()
+      const pollHeaders = WORKER_URL ? {} : { 'Authorization': `Bearer ${REPLICATE_KEY}` }
+
       while (p.status !== 'succeeded' && p.status !== 'failed') {
         await new Promise(r => setTimeout(r, 1000))
-        const r2 = await fetch(`https://api.replicate.com/v1/predictions/${p.id}`, { headers: { 'Authorization': `Bearer ${REPLICATE_KEY}` } })
+        const r2 = await fetch(`${apiUrl}/v1/predictions/${p.id}`, { headers: pollHeaders })
         p = await r2.json()
       }
       if (p.status === 'failed') throw new Error(p.error || 'Generation failed')
@@ -100,7 +110,7 @@ function Generator({ t, language, canGenerate, onGeneration }) {
 
   const downloadImage = async () => {
     if (!generatedImage) return
-    
+
     try {
       const response = await fetch(generatedImage.url)
       const blob = await response.blob()
@@ -125,7 +135,7 @@ function Generator({ t, language, canGenerate, onGeneration }) {
     <div className="generator">
       <div className="generator-form">
         <h2>{t('generator.title')}</h2>
-        
+
         <div className="form-group">
           <label>{t('generator.prompt')}</label>
           <textarea
@@ -134,8 +144,8 @@ function Generator({ t, language, canGenerate, onGeneration }) {
             placeholder={t('generator.prompt')}
             disabled={isGenerating}
           />
-          <button 
-            className="btn-secondary" 
+          <button
+            className="btn-secondary"
             onClick={enhancePrompt}
             disabled={isEnhancing || !prompt.trim()}
             style={{marginTop: '0.5rem', width: '100%'}}
@@ -209,7 +219,7 @@ function Generator({ t, language, canGenerate, onGeneration }) {
         </button>
 
         {error && (
-          <div style={{color: 'var(--error)', marginTop: '1rem', textAlign: 'center'}}>
+          <div style={{color: 'var(--error)', marginTop: '1rem', textAlign: 'center', fontSize: '0.9rem', wordBreak: 'break-word'}}>
             {error}
           </div>
         )}
@@ -220,9 +230,9 @@ function Generator({ t, language, canGenerate, onGeneration }) {
           <div className="loading-spinner"></div>
         ) : generatedImage ? (
           <>
-            <img 
-              src={generatedImage.url} 
-              alt="Generated" 
+            <img
+              src={generatedImage.url}
+              alt="Generated"
               className="preview-image"
             />
             <div className="preview-actions">
