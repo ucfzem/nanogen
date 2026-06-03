@@ -1,9 +1,6 @@
 import React, { useState } from 'react'
 
-const REPLICATE_API_KEY = import.meta.env.VITE_REPLICATE_API_KEY || ''
-const REPLICATE_TOKEN = import.meta.env.VITE_REPLICATE_TOKEN || ''
-
-const hasApiKey = () => REPLICATE_API_KEY || REPLICATE_TOKEN
+const REPLICATE_KEY = import.meta.env.VITE_REPLICATE_API_KEY || ''
 
 const STYLE_PROMPTS = {
   realistic: 'professional photography, 8k, dramatic lighting, sharp focus, ',
@@ -50,55 +47,13 @@ function Generator({ t, language, canGenerate, onGeneration }) {
     }, 800)
   }
 
-  const generateWithReplicate = async (fullPrompt) => {
-    const dims = getDimensions(ratio)
-    const apiKey = REPLICATE_API_KEY || REPLICATE_TOKEN
-
-    const response = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        input: {
-          prompt: fullPrompt,
-          go_fast: true,
-          num_outputs: 1,
-          aspect_ratio: ratio,
-          output_format: 'webp',
-        }
-      })
-    })
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}))
-      throw new Error(err.detail || `API error ${response.status}`)
-    }
-
-    const prediction = await response.json()
-
-    // Poll until complete
-    let result = prediction
-    while (result.status !== 'succeeded' && result.status !== 'failed') {
-      await new Promise(r => setTimeout(r, 1000))
-      const res = await fetch(`https://api.replicate.com/v1/predictions/${result.id}`, {
-        headers: { 'Authorization': `Bearer ${apiKey}` }
-      })
-      result = await res.json()
-    }
-
-    if (result.status === 'failed') {
-      throw new Error(result.error || 'Generation failed')
-    }
-
-    const imageUrl = result.output?.[0] || result.output
-    if (!imageUrl) throw new Error('No image in response')
-    return imageUrl
-  }
-
   const generateImage = async () => {
     if (!prompt.trim() || !canGenerate()) return
+
+    if (!REPLICATE_KEY) {
+      setError("Clé API Replicate manquante. Ajoutez VITE_REPLICATE_API_KEY dans les secrets GitHub ou le fichier .env")
+      return
+    }
 
     setIsGenerating(true)
     setError(null)
@@ -106,13 +61,39 @@ function Generator({ t, language, canGenerate, onGeneration }) {
     try {
       const fullPrompt = `${STYLE_PROMPTS[style] || ''}${prompt}`
 
-      if (hasApiKey()) {
-        const imageUrl = await generateWithReplicate(fullPrompt)
-        saveImage(imageUrl)
-      } else {
-        setError('Configurez une clé Replicate (gratuite) dans Settings > Environment Variables > VITE_REPLICATE_API_KEY')
-        setIsGenerating(false)
+      const res = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${REPLICATE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          input: { prompt: fullPrompt, go_fast: true, num_outputs: 1, aspect_ratio: ratio, output_format: 'webp' }
+        })
+      })
+
+      if (!res.ok) {
+        const errBody = await res.text()
+        throw new Error(`Replicate ${res.status}: ${errBody}`)
       }
+
+      const prediction = await res.json()
+
+      let result = prediction
+      while (result.status !== 'succeeded' && result.status !== 'failed') {
+        await new Promise(r => setTimeout(r, 1000))
+        const poll = await fetch(`https://api.replicate.com/v1/predictions/${result.id}`, {
+          headers: { 'Authorization': `Bearer ${REPLICATE_KEY}` }
+        })
+        result = await poll.json()
+      }
+
+      if (result.status === 'failed') throw new Error(result.error || 'Generation failed')
+
+      const imageUrl = result.output?.[0] || result.output
+      if (!imageUrl) throw new Error('No image in response')
+
+      saveImage(imageUrl)
     } catch (err) {
       setError(err.message)
       setIsGenerating(false)

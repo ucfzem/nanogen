@@ -1,0 +1,10 @@
+name = "nanogen"
+main = "_worker.js"
+compatibility_date = "2026-06-01"
+
+[env.production]
+vars = { REPLICATE_API_KEY = "" }
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
