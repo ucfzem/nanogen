@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 
 const REPLICATE_KEY = import.meta.env.VITE_REPLICATE_API_KEY || ''
-const API_URL = import.meta.env.VITE_API_URL || 'https://nanogen.ucfzem.workers.dev'
 
 const STYLE_PROMPTS = {
   realistic: 'professional photography, 8k, dramatic lighting, sharp focus, ',
@@ -50,6 +49,7 @@ function Generator({ t, language, canGenerate, onGeneration }) {
 
   const generateImage = async () => {
     if (!prompt.trim() || !canGenerate()) return
+    if (!REPLICATE_KEY) { setError('Clé Replicate manquante. Créez un .env avec VITE_REPLICATE_API_KEY ou ajoutez-le aux secrets GitHub'); return }
 
     setIsGenerating(true)
     setError(null)
@@ -57,16 +57,24 @@ function Generator({ t, language, canGenerate, onGeneration }) {
     try {
       const fullPrompt = `${STYLE_PROMPTS[style] || ''}${prompt}`
 
-      const res = await fetch(`${API_URL}/api/generate`, {
+      const res = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: fullPrompt, ratio })
+        headers: { 'Authorization': `Bearer ${REPLICATE_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: { prompt: fullPrompt, go_fast: true, num_outputs: 1, aspect_ratio: ratio, output_format: 'webp' } })
       })
+      if (!res.ok) throw new Error(`Replicate ${res.status}: ${await res.text().catch(() => '')}`)
 
-      const data = await res.json()
-      if (!res.ok || !data.url) throw new Error(data.error || `Erreur ${res.status}`)
+      let p = await res.json()
+      while (p.status !== 'succeeded' && p.status !== 'failed') {
+        await new Promise(r => setTimeout(r, 1000))
+        const r2 = await fetch(`https://api.replicate.com/v1/predictions/${p.id}`, { headers: { 'Authorization': `Bearer ${REPLICATE_KEY}` } })
+        p = await r2.json()
+      }
+      if (p.status === 'failed') throw new Error(p.error || 'Generation failed')
 
-      saveImage(data.url)
+      const imageUrl = p.output?.[0] || p.output
+      if (!imageUrl) throw new Error('No image in response')
+      saveImage(imageUrl)
     } catch (err) {
       setError(err.message)
       setIsGenerating(false)
