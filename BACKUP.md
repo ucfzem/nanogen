@@ -94,6 +94,7 @@ nanogen/
 | Profil utilisateur | localStorage |
 | Téléchargement d'images | fetch + blob |
 | Partage social (Web Share API) | Natif navigateur |
+| API de génération (remplace Pollinations.ai) | Replicate (FLUX Schnell, clé gratuite) |
 
 ### Déploiement
 - **Repo GitHub :** https://github.com/ucfzem/nanogen

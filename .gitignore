@@ -1,1 +1,4 @@
-# .github/workflows/ -- removed, needed for deployment
+node_modules/
+dist/
+.env
+.env.local

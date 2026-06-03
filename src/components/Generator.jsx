@@ -1,5 +1,22 @@
 import React, { useState } from 'react'
 
+const REPLICATE_API_KEY = import.meta.env.VITE_REPLICATE_API_KEY || ''
+const REPLICATE_TOKEN = import.meta.env.VITE_REPLICATE_TOKEN || ''
+
+const hasApiKey = () => REPLICATE_API_KEY || REPLICATE_TOKEN
+
+const STYLE_PROMPTS = {
+  realistic: 'professional photography, 8k, dramatic lighting, sharp focus, ',
+  anime: 'anime style, studio ghibli, vibrant colors, detailed, ',
+  portrait: 'portrait photography, studio lighting, sharp focus, professional, ',
+  concept: 'concept art, detailed, epic composition, cinematic lighting, ',
+  fantasy: 'fantasy art, magical, ethereal lighting, detailed illustration, ',
+  scifi: 'sci-fi, futuristic, cyberpunk, neon lights, highly detailed, ',
+  oil: 'oil painting, classical art, rich textures, masterpiece, ',
+  watercolor: 'watercolor painting, soft colors, artistic, flowing brushstrokes, ',
+  '3d': '3d render, octane render, highly detailed, professional lighting, '
+}
+
 function Generator({ t, language, canGenerate, onGeneration }) {
   const [prompt, setPrompt] = useState('')
   const [negativePrompt, setNegativePrompt] = useState('')
@@ -13,87 +30,110 @@ function Generator({ t, language, canGenerate, onGeneration }) {
   const styles = ['anime', 'realistic', 'portrait', 'concept', 'fantasy', 'scifi', 'oil', 'watercolor', '3d']
   const ratios = ['1:1', '16:9', '9:16', '4:3']
 
-  const ratioDimensions = {
-    '1:1': { width: 1024, height: 1024 },
-    '16:9': { width: 1280, height: 720 },
-    '9:16': { width: 720, height: 1280 },
-    '4:3': { width: 1024, height: 768 }
+  const getDimensions = (r) => {
+    const map = {
+      '1:1': { width: 1024, height: 1024 },
+      '16:9': { width: 1280, height: 720 },
+      '9:16': { width: 720, height: 1280 },
+      '4:3': { width: 1024, height: 768 }
+    }
+    return map[r] || map['1:1']
   }
 
-  const enhancePrompt = async () => {
+  const enhancePrompt = () => {
     if (!prompt.trim()) return
     setIsEnhancing(true)
-    
-    const enhancements = {
-      fr: {
-        realistic: "ultra realistic, 8k, professional photography, dramatic lighting, ",
-        anime: "anime style, studio ghibli, vibrant colors, detailed, ",
-        portrait: "portrait photography, studio lighting, sharp focus, professional, ",
-        concept: "concept art, detailed, epic composition, cinematic, ",
-        fantasy: "fantasy art, magical, ethereal lighting, detailed illustration, ",
-        scifi: "sci-fi, futuristic, cyberpunk, neon lights, detailed, ",
-        oil: "oil painting, classical art, rich textures, masterpiece, ",
-        watercolor: "watercolor painting, soft colors, artistic, flowing, ",
-        "3d": "3d render, octane render, detailed, professional, "
-      }
+    const enh = STYLE_PROMPTS[style] || STYLE_PROMPTS.realistic
+    setTimeout(() => {
+      setPrompt(enh + prompt)
+      setIsEnhancing(false)
+    }, 800)
+  }
+
+  const generateWithReplicate = async (fullPrompt) => {
+    const dims = getDimensions(ratio)
+    const apiKey = REPLICATE_API_KEY || REPLICATE_TOKEN
+
+    const response = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        input: {
+          prompt: fullPrompt,
+          go_fast: true,
+          num_outputs: 1,
+          aspect_ratio: ratio,
+          output_format: 'webp',
+        }
+      })
+    })
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}))
+      throw new Error(err.detail || `API error ${response.status}`)
     }
 
-    const langEnhancements = enhancements[language] || enhancements.fr
-    const enhancement = langEnhancements[style] || langEnhancements.realistic
-    
-    setTimeout(() => {
-      setPrompt(enhancement + prompt)
-      setIsEnhancing(false)
-    }, 1000)
+    const prediction = await response.json()
+
+    // Poll until complete
+    let result = prediction
+    while (result.status !== 'succeeded' && result.status !== 'failed') {
+      await new Promise(r => setTimeout(r, 1000))
+      const res = await fetch(`https://api.replicate.com/v1/predictions/${result.id}`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` }
+      })
+      result = await res.json()
+    }
+
+    if (result.status === 'failed') {
+      throw new Error(result.error || 'Generation failed')
+    }
+
+    const imageUrl = result.output?.[0] || result.output
+    if (!imageUrl) throw new Error('No image in response')
+    return imageUrl
   }
 
   const generateImage = async () => {
     if (!prompt.trim() || !canGenerate()) return
-    
+
     setIsGenerating(true)
     setError(null)
-    
+
     try {
-      const dims = ratioDimensions[ratio]
-      const fullPrompt = `${prompt}, ${style} style`
-      
-      const seed = Math.floor(Math.random() * 1000000)
-      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=${dims.width}&height=${dims.height}&seed=${seed}&nologo=true`
-      
-      const img = new Image()
-      img.onload = () => {
-        setGeneratedImage({
-          url: imageUrl,
-          prompt: prompt,
-          style: style,
-          ratio: ratio,
-          timestamp: Date.now()
-        })
-        setIsGenerating(false)
-        onGeneration()
-        
-        const history = JSON.parse(localStorage.getItem('nanogen_history') || '[]')
-        history.unshift({
-          url: imageUrl,
-          prompt: prompt,
-          style: style,
-          ratio: ratio,
-          timestamp: Date.now()
-        })
-        localStorage.setItem('nanogen_history', JSON.stringify(history.slice(0, 50)))
-      }
-      
-      img.onerror = () => {
-        setError('Erreur lors de la génération. Veuillez réessayer.')
+      const fullPrompt = `${STYLE_PROMPTS[style] || ''}${prompt}`
+
+      if (hasApiKey()) {
+        const imageUrl = await generateWithReplicate(fullPrompt)
+        saveImage(imageUrl)
+      } else {
+        setError('Configurez une clé Replicate (gratuite) dans Settings > Environment Variables > VITE_REPLICATE_API_KEY')
         setIsGenerating(false)
       }
-      
-      img.src = imageUrl
-      
     } catch (err) {
-      setError('Erreur: ' + err.message)
+      setError(err.message)
       setIsGenerating(false)
     }
+  }
+
+  const saveImage = (imageUrl) => {
+    const img = new Image()
+    img.onload = () => {
+      setGeneratedImage({ url: imageUrl, prompt, style, ratio, timestamp: Date.now() })
+      setIsGenerating(false)
+      onGeneration()
+      const history = JSON.parse(localStorage.getItem('nanogen_history') || '[]')
+      history.unshift({ url: imageUrl, prompt, style, ratio, timestamp: Date.now() })
+      localStorage.setItem('nanogen_history', JSON.stringify(history.slice(0, 50)))
+    }
+    img.onerror = () => {
+      setError("L'image générée n'a pas pu être chargée.")
+      setIsGenerating(false)
+    }
+    img.src = imageUrl
   }
 
   const downloadImage = async () => {
