@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 
 const REPLICATE_KEY = import.meta.env.VITE_REPLICATE_API_KEY || ''
+const API_URL = import.meta.env.VITE_API_URL || 'https://nanogen.ucfzem.workers.dev'
 
 const STYLE_PROMPTS = {
   realistic: 'professional photography, 8k, dramatic lighting, sharp focus, ',
@@ -50,50 +51,22 @@ function Generator({ t, language, canGenerate, onGeneration }) {
   const generateImage = async () => {
     if (!prompt.trim() || !canGenerate()) return
 
-    if (!REPLICATE_KEY) {
-      setError("Clé API Replicate manquante. Ajoutez VITE_REPLICATE_API_KEY dans les secrets GitHub ou le fichier .env")
-      return
-    }
-
     setIsGenerating(true)
     setError(null)
 
     try {
       const fullPrompt = `${STYLE_PROMPTS[style] || ''}${prompt}`
 
-      const res = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions', {
+      const res = await fetch(`${API_URL}/api/generate`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${REPLICATE_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          input: { prompt: fullPrompt, go_fast: true, num_outputs: 1, aspect_ratio: ratio, output_format: 'webp' }
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: fullPrompt, ratio })
       })
 
-      if (!res.ok) {
-        const errBody = await res.text()
-        throw new Error(`Replicate ${res.status}: ${errBody}`)
-      }
+      const data = await res.json()
+      if (!res.ok || !data.url) throw new Error(data.error || `Erreur ${res.status}`)
 
-      const prediction = await res.json()
-
-      let result = prediction
-      while (result.status !== 'succeeded' && result.status !== 'failed') {
-        await new Promise(r => setTimeout(r, 1000))
-        const poll = await fetch(`https://api.replicate.com/v1/predictions/${result.id}`, {
-          headers: { 'Authorization': `Bearer ${REPLICATE_KEY}` }
-        })
-        result = await poll.json()
-      }
-
-      if (result.status === 'failed') throw new Error(result.error || 'Generation failed')
-
-      const imageUrl = result.output?.[0] || result.output
-      if (!imageUrl) throw new Error('No image in response')
-
-      saveImage(imageUrl)
+      saveImage(data.url)
     } catch (err) {
       setError(err.message)
       setIsGenerating(false)

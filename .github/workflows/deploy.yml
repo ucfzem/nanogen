@@ -24,8 +24,6 @@ jobs:
           node-version: 20
       - run: npm install
       - run: npm run build
-        env:
-          VITE_REPLICATE_API_KEY: ${{ secrets.REPLICATE_API_KEY }}
       - uses: actions/configure-pages@v4
         with:
           static_site_generator: vite
