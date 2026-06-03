@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 
-const REPLICATE_KEY = import.meta.env.VITE_REPLICATE_API_KEY || ''
 const WORKER_URL = import.meta.env.VITE_WORKER_URL || ''
 
 const STYLE_PROMPTS = {
@@ -50,62 +49,39 @@ function Generator({ t, language, canGenerate, onGeneration }) {
 
   const generateImage = async () => {
     if (!prompt.trim() || !canGenerate()) return
-
-    const apiUrl = WORKER_URL || 'https://api.replicate.com'
-    if (!WORKER_URL && !REPLICATE_KEY) {
-      setError('Configuration requise : définissez VITE_REPLICATE_API_KEY dans .env (local) ou déployez le Worker Cloudflare.')
-      return
-    }
+    if (!WORKER_URL) { setError('WORKER_URL non configurée. Vérifiez les secrets GitHub.'); return }
 
     setIsGenerating(true)
     setError(null)
 
     try {
       const fullPrompt = `${STYLE_PROMPTS[style] || ''}${prompt}`
-      const headers = { 'Content-Type': 'application/json' }
-      if (!WORKER_URL) headers['Authorization'] = `Bearer ${REPLICATE_KEY}`
+      const dims = getDimensions(ratio)
 
-      const res = await fetch(`${apiUrl}/v1/models/black-forest-labs/flux-schnell/predictions`, {
+      const res = await fetch(`${WORKER_URL}/generate`, {
         method: 'POST',
-        headers,
-        body: JSON.stringify({ input: { prompt: fullPrompt, go_fast: true, num_outputs: 1, aspect_ratio: ratio, output_format: 'webp' } })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: fullPrompt, width: dims.width, height: dims.height })
       })
-      if (!res.ok) throw new Error(`API ${res.status}: ${await res.text().catch(() => '')}`)
 
-      let p = await res.json()
-      const pollHeaders = WORKER_URL ? {} : { 'Authorization': `Bearer ${REPLICATE_KEY}` }
-
-      while (p.status !== 'succeeded' && p.status !== 'failed') {
-        await new Promise(r => setTimeout(r, 1000))
-        const r2 = await fetch(`${apiUrl}/v1/predictions/${p.id}`, { headers: pollHeaders })
-        p = await r2.json()
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(text.slice(0, 200))
       }
-      if (p.status === 'failed') throw new Error(p.error || 'Generation failed')
 
-      const imageUrl = p.output?.[0] || p.output
-      if (!imageUrl) throw new Error('No image in response')
-      saveImage(imageUrl)
-    } catch (err) {
-      setError(err.message)
-      setIsGenerating(false)
-    }
-  }
+      const blob = await res.blob()
+      const imageUrl = URL.createObjectURL(blob)
 
-  const saveImage = (imageUrl) => {
-    const img = new Image()
-    img.onload = () => {
       setGeneratedImage({ url: imageUrl, prompt, style, ratio, timestamp: Date.now() })
       setIsGenerating(false)
       onGeneration()
       const history = JSON.parse(localStorage.getItem('nanogen_history') || '[]')
       history.unshift({ url: imageUrl, prompt, style, ratio, timestamp: Date.now() })
       localStorage.setItem('nanogen_history', JSON.stringify(history.slice(0, 50)))
-    }
-    img.onerror = () => {
-      setError("L'image générée n'a pas pu être chargée.")
+    } catch (err) {
+      setError(err.message)
       setIsGenerating(false)
     }
-    img.src = imageUrl
   }
 
   const downloadImage = async () => {
