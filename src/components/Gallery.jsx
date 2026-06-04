@@ -41,7 +41,7 @@ function Gallery({ t, language }) {
         <div className="gallery-grid">
           {filteredImages.map((img, idx) => (
             <div key={idx} className="gallery-item">
-              <img src={img.url} alt={img.prompt} />
+              <img src={img.dataUrl || img.url} alt={img.prompt} />
               <div className="gallery-item-info">
                 <div className="gallery-item-prompt">{img.prompt}</div>
                 <div className="post-tags">

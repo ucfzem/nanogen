@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 
 const WORKER_URL = import.meta.env.VITE_WORKER_URL || ''
 
@@ -23,6 +23,7 @@ function Generator({ t, language, canGenerate, onGeneration }) {
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [generatedImage, setGeneratedImage] = useState(null)
   const [error, setError] = useState(null)
+  const previewRef = useRef(null)
 
   const styles = ['anime', 'realistic', 'portrait', 'concept', 'fantasy', 'scifi', 'oil', 'watercolor', '3d']
   const ratios = ['1:1', '16:9', '9:16', '4:3']
@@ -36,6 +37,13 @@ function Generator({ t, language, canGenerate, onGeneration }) {
     }
     return map[r] || map['1:1']
   }
+
+  const blobToBase64 = (blob) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
 
   const enhancePrompt = () => {
     if (!prompt.trim()) return
@@ -71,12 +79,13 @@ function Generator({ t, language, canGenerate, onGeneration }) {
 
       const blob = await res.blob()
       const imageUrl = URL.createObjectURL(blob)
+      const dataUrl = await blobToBase64(blob)
 
-      setGeneratedImage({ url: imageUrl, prompt, style, ratio, timestamp: Date.now() })
+      setGeneratedImage({ url: imageUrl, dataUrl, prompt, style, ratio, timestamp: Date.now() })
       setIsGenerating(false)
       onGeneration()
       const history = JSON.parse(localStorage.getItem('nanogen_history') || '[]')
-      history.unshift({ url: imageUrl, prompt, style, ratio, timestamp: Date.now() })
+      history.unshift({ dataUrl, prompt, style, ratio, timestamp: Date.now() })
       localStorage.setItem('nanogen_history', JSON.stringify(history.slice(0, 50)))
     } catch (err) {
       setError(err.message)
@@ -84,28 +93,32 @@ function Generator({ t, language, canGenerate, onGeneration }) {
     }
   }
 
-  const downloadImage = async () => {
-    if (!generatedImage) return
-
-    try {
-      const response = await fetch(generatedImage.url)
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `nanogen-${Date.now()}.png`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch (err) {
-      window.open(generatedImage.url, '_blank')
-    }
+  const downloadImage = () => {
+    const img = generatedImage?.dataUrl || generatedImage?.url
+    if (!img) return
+    const a = document.createElement('a')
+    a.href = img
+    a.download = `nanogen-${Date.now()}.png`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   }
 
   const copyPrompt = () => {
     navigator.clipboard.writeText(prompt)
   }
+
+  const retry = () => {
+    setError(null)
+    generateImage()
+  }
+
+  useEffect(() => {
+    const current = generatedImage?.url
+    return () => {
+      if (current) URL.revokeObjectURL(current)
+    }
+  }, [generatedImage?.url])
 
   return (
     <div className="generator">
@@ -195,8 +208,13 @@ function Generator({ t, language, canGenerate, onGeneration }) {
         </button>
 
         {error && (
-          <div style={{color: 'var(--error)', marginTop: '1rem', textAlign: 'center', fontSize: '0.9rem', wordBreak: 'break-word'}}>
-            {error}
+          <div style={{marginTop: '1rem', textAlign: 'center'}}>
+            <p style={{color: 'var(--error)', fontSize: '0.9rem', wordBreak: 'break-word', marginBottom: '0.5rem'}}>
+              {error}
+            </p>
+            <button className="btn-secondary" onClick={retry}>
+              🔄 Réessayer
+            </button>
           </div>
         )}
       </div>
@@ -207,6 +225,7 @@ function Generator({ t, language, canGenerate, onGeneration }) {
         ) : generatedImage ? (
           <>
             <img
+              ref={previewRef}
               src={generatedImage.url}
               alt="Generated"
               className="preview-image"
@@ -219,10 +238,11 @@ function Generator({ t, language, canGenerate, onGeneration }) {
                 📋 {t('common.copy')}
               </button>
               <button className="btn-secondary" onClick={() => {
+                const img = generatedImage.dataUrl || generatedImage.url
                 navigator.share?.({
                   title: 'NanoGen',
                   text: generatedImage.prompt,
-                  url: generatedImage.url
+                  url: img
                 })
               }}>
                 🔗 {t('common.share')}
