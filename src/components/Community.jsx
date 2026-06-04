@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { supabase, isSupabaseConfigured } from '../supabase'
 
-function Community({ t, language, userEmail }) {
+function Community({ t, language }) {
   const [posts, setPosts] = useState([])
   const [newPost, setNewPost] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -38,16 +38,11 @@ function Community({ t, language, userEmail }) {
 
   const handlePublish = async () => {
     if (!newPost.trim()) return
-    if (!userEmail) {
-      alert(t('community.loginRequired'))
-      return
-    }
-
     setIsPosting(true)
     
     const post = {
-      author: userEmail.split('@')[0],
-      email: userEmail,
+      author: 'User_' + Date.now().toString(36).slice(-4),
+      email: 'guest',
       content: newPost,
       image_url: null,
       tags: [],

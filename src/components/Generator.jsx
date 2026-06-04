@@ -14,7 +14,7 @@ const STYLE_PROMPTS = {
   '3d': '3d render, octane render, highly detailed, professional lighting, '
 }
 
-function Generator({ t, language, canGenerate, onGeneration }) {
+function Generator({ t, language }) {
   const [prompt, setPrompt] = useState('')
   const [negativePrompt, setNegativePrompt] = useState('')
   const [style, setStyle] = useState('realistic')
@@ -56,7 +56,7 @@ function Generator({ t, language, canGenerate, onGeneration }) {
   }
 
   const generateImage = async () => {
-    if (!prompt.trim() || !canGenerate()) return
+    if (!prompt.trim()) return
     if (!WORKER_URL) { setError('WORKER_URL non configurée. Vérifiez les secrets GitHub.'); return }
 
     setIsGenerating(true)
@@ -83,7 +83,6 @@ function Generator({ t, language, canGenerate, onGeneration }) {
 
       setGeneratedImage({ url: imageUrl, dataUrl, prompt, style, ratio, timestamp: Date.now() })
       setIsGenerating(false)
-      onGeneration()
       const history = JSON.parse(localStorage.getItem('nanogen_history') || '[]')
       history.unshift({ dataUrl, prompt, style, ratio, timestamp: Date.now() })
       localStorage.setItem('nanogen_history', JSON.stringify(history.slice(0, 50)))
@@ -186,23 +185,10 @@ function Generator({ t, language, canGenerate, onGeneration }) {
           </div>
         </div>
 
-        {!canGenerate() && (
-          <div style={{
-            background: 'rgba(239, 68, 68, 0.1)',
-            border: '1px solid var(--error)',
-            padding: '1rem',
-            borderRadius: 'var(--radius)',
-            marginBottom: '1rem',
-            color: 'var(--error)'
-          }}>
-            ⚠️ Limite atteinte. Inscrivez-vous pour continuer.
-          </div>
-        )}
-
         <button
           className="btn-primary"
           onClick={generateImage}
-          disabled={isGenerating || !prompt.trim() || !canGenerate()}
+          disabled={isGenerating || !prompt.trim()}
         >
           {isGenerating ? '⏳ ' + t('common.loading') : '🎨 ' + t('generator.generate')}
         </button>

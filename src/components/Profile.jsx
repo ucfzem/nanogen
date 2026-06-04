@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 
-function Profile({ t, language, userEmail }) {
+function Profile({ t, language }) {
   const [history, setHistory] = useState([])
   const [generationCount, setGenerationCount] = useState(0)
 
@@ -59,7 +59,7 @@ function Profile({ t, language, userEmail }) {
         <div className="gallery-grid">
           {history.map((img, idx) => (
             <div key={idx} className="gallery-item">
-              <img src={img.url} alt={img.prompt} />
+              <img src={img.dataUrl || img.url} alt={img.prompt} />
               <div className="gallery-item-info">
                 <div className="gallery-item-prompt">{img.prompt}</div>
                 <div className="post-tags">
